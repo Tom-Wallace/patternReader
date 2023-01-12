@@ -1,7 +1,5 @@
-#Tom Wallace
-#6482558
-#Brock University
 
+import csv
 import json
 import os
 from os.path import basename
@@ -16,8 +14,8 @@ import random
 
 from bkpt import bkpt
 
-filename = "timeseries\\"+random.choice(os.listdir("timeseries")) #Picks a random json benchmark file from \timeseries directory
-print(filename)
+#filename = "timeseries\\"+random.choice(os.listdir("timeseries")) #Picks a random json benchmark file from \timeseries directory
+#print(filename)
 #filename = "eclipse__eclipse-collections#org.eclipse.collections.impl.jmh.map.ChainMapPutTest.ec#isPresized=false&loadFactor=0.80f&size=3000000.json"
 #filename = "timeseries\\h2oai__h2o-3#water.util.IcedHashMapBench.writeMap#arrayType=Array&array_values_length=10000&keyType=String&n_entries=100000&valueType=Boolean.json"
 #filename = "timeseries\\JCTools__JCTools#org.jctools.jmh.latency.QueueBurstCost.burstCost#burstSize=100&consumerCount=1&qCapacity=132000&qType=SpmcArrayQueue&warmup=true.json"
@@ -146,16 +144,16 @@ def stumpyRun(measurements, m): #Runs only Stumpy (Motif detection).
     axs[1].plot(mp[:, 0])
     plt.show()
 
-def stumpyRunWithRpt(measurements, m, i): #Runs Stumpy (Motif detection) and Ruptures (Changepoint) on the same graph.
+def stumpyRunWithRpt(filename, measurements, m, i): #Runs Stumpy (Motif detection) and Ruptures (Changepoint) on the same graph.
     points = np.array(measurements)
     # detection
     algo = rpt.Pelt(model="rbf", min_size=m/2).fit(points)
     result = algo.predict(15)
     classification = classify(result, measurements)
-    print(classification)
     mp = stumpy.stump(measurements, m)
     motif_idx = np.argsort(mp[:, 0])[0]
     nearest_neighbor_idx = mp[motif_idx, 1]
+    discord_idx = np.argsort(mp[:, 0])[-1]
     fig, axs = plt.subplots(2, sharex=True, gridspec_kw={'hspace': 0})
     plt.suptitle('Motif (Pattern) Discovery', fontsize='30')
     fig.suptitle(filename, fontsize='12')
@@ -164,24 +162,48 @@ def stumpyRunWithRpt(measurements, m, i): #Runs Stumpy (Motif detection) and Rup
     axs[0].add_patch(rect)
     rect = Rectangle((nearest_neighbor_idx, min(measurements)), m, max(measurements), facecolor='lightgrey')
     axs[0].add_patch(rect)
+    rect = Rectangle((discord_idx, min(measurements)), m, max(measurements), facecolor='lightgrey')
+    axs[0].add_patch(rect)
+    score = 0
     for f in result:
         axs[0].axvline(x=f, linestyle="dashed", color='r')
+        if motif_idx-(m/10) <= f <= motif_idx+m:
+            score = score + 1
+        elif nearest_neighbor_idx-(m/10) <= f <= nearest_neighbor_idx + m:
+            score = score + 1
+        elif discord_idx-(m/10) <= f <= discord_idx+m:
+            score = score + 1
+    if len(result)>=8:
+        score = score - ((len(result)-6)/2)
     axs[1].set_xlabel('Iterations', fontsize='18')
     axs[1].set_ylabel('Matrix Profile', fontsize='20')
     axs[1].axvline(x=motif_idx, linestyle="dashed")
     axs[1].axvline(x=nearest_neighbor_idx, linestyle="dashed")
+    axs[1].axvline(x=discord_idx, linestyle="dashed", color="red")
     axs[1].plot(mp[:, 0])
     plotfile = basename(filename).replace('.json', '.png')
     plotfile = str(i) + plotfile
     if classification == "no steady state":
-        plotfile = "RQ3\\SteadyState\\"+plotfile
+        if score<1:
+            plotfile = "MoreResults\\RQ3\\NoSteadyState\\No\\" + plotfile
+        elif 2>score>=1:
+            plotfile = "MoreResults\\RQ3\\NoSteadyState\\Potential\\" + plotfile
+        elif score>=2:
+            plotfile = "MoreResults\\RQ3\\NoSteadyState\\Likely\\" + plotfile
+
     else:
-        plotfile = "RQ3\\FlatOther\\" + plotfile
+        if score<1:
+            plotfile = "MoreResults\\RQ3\\FlatOther\\No\\" + plotfile
+        elif 2>score>=1:
+            plotfile = "MoreResults\\RQ3\\FlatOther\\Potential\\" + plotfile
+        elif score>=2:
+            plotfile = "MoreResults\\RQ3\\FlatOther\\Likely\\" + plotfile
+    print(classification+" "+str(score))
 
     plt.savefig(plotfile, dpi=300)
+    plt.close(fig)
     plt.clf()
-
-def stumpyJudgeMotif(measurements, m, i): #Runs Stumpy (Motif detection) with classification
+def stumpyJudgeMotif(filename, measurements, m, i): #Runs Stumpy (Motif detection) with classification
     #Outputs a text file with min, max, variance and mean of Matrix Profile, and an image file of both graphs to folder \RQ1
     points = np.array(measurements)
     # detection
@@ -208,11 +230,12 @@ def stumpyJudgeMotif(measurements, m, i): #Runs Stumpy (Motif detection) with cl
     plotfile = basename(filename).replace('.json', '.png')
     plotfile = str(i) + plotfile
     if classification == "no steady state":
-        plotfile = "RQ1\\NoSteadyState\\"+plotfile
+        plotfile = "MoreResults\\RQ1\\NoSteadyState\\"+plotfile
     else:
-        plotfile = "RQ1\\FlatOther\\" + plotfile
+        plotfile = "MoreResults\\RQ1\\FlatOther\\" + plotfile
     plt.savefig(plotfile, dpi=300)
     plt.clf()
+    plt.close(fig)
     textfile = plotfile.replace('.png','.txt')
     mini = min(mp[:, 0])
     maxi = max(mp[:, 0])
@@ -221,6 +244,32 @@ def stumpyJudgeMotif(measurements, m, i): #Runs Stumpy (Motif detection) with cl
     f= open(textfile, 'w')
     f.writelines([str(mini)+"\n", str(maxi)+"\n", str(var)+"\n", str(mean)])
     f.close()
+    return classification, [filename, mini, maxi, var, mean]
+def stumpyJudgeMotifNoGraph(filename, measurements, m, i): #Runs Stumpy (Motif detection) with classification, no graph
+    #Outputs a text file with min, max, variance and mean of Matrix Profile, and an image file of both graphs to folder \RQ1
+    points = np.array(measurements)
+    # detection
+    algo = rpt.Pelt(model="rbf", min_size=m/2).fit(points)
+    result = algo.predict(15)
+    classification = classify(result, measurements)
+    print(classification)
+    mp = stumpy.stump(measurements, m)
+    motif_idx = np.argsort(mp[:, 0])[0]
+    nearest_neighbor_idx = mp[motif_idx, 1]
+    textfile = basename(filename).replace('.json', '.txt')
+    textfile = str(i) + textfile
+    if classification == "no steady state":
+        textfile = "MoreResults\\RQ1\\NoSteadyState\\"+textfile
+    else:
+        textfile = "MoreResults\\RQ1\\FlatOther\\" + textfile
+    mini = min(mp[:, 0])
+    maxi = max(mp[:, 0])
+    var = np.var(mp[:, 0])
+    mean = np.mean(mp[:, 0])
+    f= open(textfile, 'w')
+    f.writelines([str(mini)+"\n", str(maxi)+"\n", str(var)+"\n", str(mean)])
+    f.close()
+    return classification, [filename, mini, maxi, var, mean]
 
 def findAnomaly(measurements, m, i): #Runs Stumpy (Motif detection), displaying discords and motifs on the graph
     #and prints out mean+stdev of the timeseries, its motifs, and the discord, as well as if any have a potential anomaly
@@ -281,17 +330,39 @@ def findAnomaly(measurements, m, i): #Runs Stumpy (Motif detection), displaying 
     axs[1].plot(mp[:, 0])
     plt.show()
 
+Q = "1" #Change to change which analysis is being performed
 
-measurements = get_measurements(filename)
+if Q == "1":
+    rq1steadyfile = open ('RQ1steady.csv', 'w')
+    rq1steadywriter = csv.writer(rq1steadyfile)
+    rq1steadywriter.writerow(['name','min','max','var','mean'])
+    rq1nsteadyfile = open ('RQ1nsteady.csv', 'w')
+    rq1nsteadywriter = csv.writer(rq1nsteadyfile)
+    rq1nsteadywriter.writerow(['name','min','max','var','mean'])
+    for filen in os.listdir("timeseries"):
+        f = os.path.join("timeseries", filen)
+        if os.path.isfile(f):
+            print(f)
+            measurements = get_measurements(f)
+            i = 0
+            for arr in measurements:
+                classif, arrprint = stumpyJudgeMotifNoGraph(filen, arr, 300, i)
+                if classif == "no steady state":
+                    rq1nsteadywriter.writerow(arrprint)
+                else:
+                    rq1steadywriter.writerow(arrprint)
+                i = i + 1
+elif Q == "3":
+    for filen in os.listdir("timeseries"):
+        f = os.path.join("timeseries", filen)
+        if os.path.isfile(f):
+            print(f)
+            measurements = get_measurements(f)
+            i = 0
+            for arr in measurements:
+                stumpyRunWithRpt(filen, arr, 300, i)
+                i = i + 1
 
-i=0
-for arr in measurements:
-    #stumpyRunWithRpt(arr, 300, i) #
-    #stumpyJudgeMotif(arr, 300, i)
-    findAnomaly(arr,200,i)
-    i=i+1
-    #a = rptPelt(arr)
-    #print(classify(a, arr))
 
 
 
